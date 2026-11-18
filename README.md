@@ -16,7 +16,7 @@ Repositório central de desenvolvimento de hardware, software embarcado, telemet
 
 ## 🛠️ Tecnologias e Ferramentas Utilizadas
 
-* **Microcontroladores & Comunicação:** ESP32, Módulos LoRa (E220 / Heltec).
+* **Microcontroladores & Comunicação:** ESP32, Módulos LoRa (E220 / E22).
 * **Sensores:** Barômetros, IMUs, GPS e amplificadores para célula de carga.
 * **Desenvolvimento de Hardware:** KiCad / EasyEDA Pro.
 * **Software de Solo:** Python (Streamlit / bibliotecas de gráficos e mapas offline).
