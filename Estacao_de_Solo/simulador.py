@@ -1,3 +1,47 @@
+"""
+=================================================================================
+  SIMULADOR DE TELEMETRIA DE VOO — TESTE OFFLINE DO DASHBOARD (SEM HARDWARE)
+=================================================================================
+  Objetivo: Gerar uma trajetória completa de lançamento de foguete (subida
+            parabólica até 350m, detecção de apogeu, disparo do Squib e queda
+            de paraquedas) gravando diretamente no arquivo "telemetria_guardada.csv"
+            para validar os gráficos, mapas e métricas do Dashboard.py sem
+            precisar dos módulos ESP32/LoRa conectados.
+
+---------------------------------------------------------------------------------
+  PERFIL DA SIMULAÇÃO GERADA
+---------------------------------------------------------------------------------
+  - Coordenadas Base   : Campus UNIFEI (-19.6765, -43.2120) com deslocamento.
+  - Fase 1 (0s a 10s)  : Subida propulsada/balística até 350 m, aceleração Z
+                         elevada (15 a 35 m/s²) e pitch próximo da vertical (~85°).
+  - Apogeu (~10s)      : Status do Squib muda de 0 (Aguardando) -> 1 (Disparando)
+                         -> 2 (Disparado).
+  - Fase 2 (> 10s)     : Descida controlada a ~15 m/s até tocar o solo (0 m).
+  - Taxa de Geração    : 1 pacote a cada 0.5 segundo (2 Hz).
+
+---------------------------------------------------------------------------------
+  BIBLIOTECAS NECESSÁRIAS
+---------------------------------------------------------------------------------
+  1. Bibliotecas Nativas (Já vêm instaladas no Python — não precisa instalar):
+     - time, datetime, math, random, os
+
+  2. Bibliotecas Externas (Instalar via terminal com pip):
+     - pandas : Utilizada para formatar e anexar as linhas no CSV.
+
+---------------------------------------------------------------------------------
+  COMO VALIDAR JUNTO COM O DASHBOARD.PY
+---------------------------------------------------------------------------------
+  1. Inicie o dashboard em um terminal:
+       streamlit run Dashboard.py
+  2. No navegador, clique em "Limpar Histórico Salvo (LoRa)" se houver dados
+     antigos e garanta que "Atualização em Tempo Real" esteja ativado.
+  3. Abra um segundo terminal na mesma pasta e execute:
+       python Simulador.py
+  4. Acompanhe o foguete subindo no gráfico 3D, mapa e métricas em tempo real.
+     Para encerrar a simulação, pressione Ctrl + C no terminal do simulador.
+=================================================================================
+"""
+
 import time
 import datetime
 import math
@@ -7,7 +51,7 @@ import pandas as pd
 
 CSV_PATH = "telemetria_guardada.csv"
 
-# Colunas exatas esperadas pelo Dashboard_Final.py
+# Colunas exatas esperadas pelo Dashboard.py
 COLUNAS_DASHBOARD = [
     "Hora_Recebimento", "Pacote_ID", "Tempo_ms", "Latitude", "Longitude",
     "Alt_BMP", "Alt_Max", "Velocidade_GPS", "Satélites", "Status_Squib",
@@ -37,37 +81,37 @@ try:
     while True:
         t_decorrido = time.time() - start_time
         tempo_ms += 200  # Envio a cada ~200ms
-        
+
         # Simulação de Trajetória
         if t_decorrido <= duracao_subida:
             alt_bmp = alt_apogeu * (1 - ((t_decorrido - duracao_subida) / duracao_subida)**2)
             acc_z = random.uniform(15.0, 35.0)
             roll = random.uniform(-5.0, 5.0)
-            pitch = random.uniform(80.0, 90.0) # Subindo quase na vertical
+            pitch = random.uniform(80.0, 90.0)  # Subindo quase na vertical
         else:
             alt_bmp = max(0.0, alt_apogeu - (t_decorrido - duracao_subida) * 15.0)
             acc_z = random.uniform(-2.0, 2.0)
             roll = random.uniform(-180.0, 180.0)
             pitch = random.uniform(-30.0, 30.0)
-            
+
         if alt_bmp > alt_max:
             alt_max = alt_bmp
-            
+
         # Lógica do Squib (0: Aguardando, 1: Disparando, 2: Disparado)
         if alt_bmp >= (alt_apogeu - 10) and status_squib == 0:
             status_squib = 1
         elif status_squib == 1 and t_decorrido > duracao_subida + 1:
             status_squib = 2
-            
+
         lat = lat_base + (t_decorrido * 0.00002) + random.uniform(-0.000005, 0.000005)
         lon = lon_base + (t_decorrido * 0.00002) + random.uniform(-0.000005, 0.000005)
-        
+
         acc_x = random.uniform(-1.5, 1.5)
         acc_y = random.uniform(-1.5, 1.5)
         vel_gps = math.sqrt(acc_x**2 + acc_y**2 + acc_z**2) * 2.0 if t_decorrido <= duracao_subida else 15.0
-        
+
         hora_atual = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        
+
         novo_registro = {
             "Hora_Recebimento": hora_atual,
             "Pacote_ID": pacote_id,
@@ -87,10 +131,10 @@ try:
             "Acc_Lin_Y": round(acc_y, 2),
             "Acc_Lin_Z": round(acc_z, 2)
         }
-        
+
         salvar_registro_telemetria(novo_registro)
         print(f"[{hora_atual}] Pacote #{pacote_id} gravado -> Alt: {alt_bmp:.1f}m")
-        
+
         pacote_id += 1
         time.sleep(0.5)
 

@@ -2,19 +2,67 @@
 =================================================================================
   RECEPTOR LORA E22 — ESTAÇÃO DE SOLO (USB BINÁRIO PARA DASHBOARD PYTHON)
 =================================================================================
-  Mapeamento de Pinos:
-    - TXD do LoRa E22 -> GPIO 33 do ESP32 (RX1)
-    - RXD do LoRa E22 -> GPIO 32 do ESP32 (TX1)
-    - AUX do LoRa E22 -> GPIO 25 do ESP32
-    - M0 e M1        -> GND (Fixo)
-=================================================================================
-  IMPORTANTE: a struct TelemetriaResumida abaixo tem que ser IDÊNTICA (mesma
-  ordem, mesmos tipos) à do transmissor. Qualquer diferença desalinha os bytes.
-  O static_assert abaixo trava a compilação se o tamanho mudar sem querer.
+  Objetivo: Receber via LoRa E22-900T30D os pacotes resumidos de telemetria
+            enviados pelo foguete/aviônica (55 bytes) e repassá-los via porta
+            USB Serial em formato binário estruturado para o Dashboard Python.
 
-  Protocolo no USB (para o Python nunca perder o alinhamento mesmo se um
-  byte for perdido na porta serial):
-    [0xAA][0x55][ payload de sizeof(TelemetriaResumida) bytes ][checksum XOR]
+  [!] AVISO CRÍTICO DE HARDWARE (ANTENA):
+      O E22-900T30D é um módulo de alta potência (30 dBm = 1W). Mantenha sempre
+      uma antena 915 MHz rosqueada no conector SMA antes de energizar o ESP32.
+
+---------------------------------------------------------------------------------
+  ESQUEMA DE LIGAÇÃO: LORA E22-900T30D -> ESP32 (30 PINOS) - MODO UART1
+---------------------------------------------------------------------------------
+  LoRa E22   ->   ESP32 (30 Pinos)
+  VCC        ->   5V (VIN)       <-- Recomendado 5V para estabilidade do módulo
+  GND        ->   GND
+  TXD        ->   GPIO 33 (RX1)  <-- Ligação cruzada (TXD do LoRa no RX do ESP32)
+  RXD        ->   GPIO 32 (TX1)  <-- Ligação cruzada (RXD do LoRa no TX do ESP32)
+  AUX        ->   GPIO 25        <-- Indica atividade/disponibilidade do rádio
+  M0         ->   GND (Fixo)     <-- Modo 0 (Operação Normal TX/RX)
+  M1         ->   GND (Fixo)     <-- Modo 0 (Operação Normal TX/RX)
+
+---------------------------------------------------------------------------------
+  PROTOCOLO DE COMUNICAÇÃO (LORA -> ESP32 -> DASHBOARD PYTHON)
+---------------------------------------------------------------------------------
+  1. Sincronismo da Struct (55 Bytes):
+     - A struct "TelemetriaResumida" deve ser IDÊNTICA (mesma ordem e mesmos
+       tipos de variáveis) no Transmissor, no Receptor e no Dashboard Python.
+     - A diretiva "static_assert" impede a compilação caso o tamanho mude.
+
+  2. Enquadramento Binário no USB (58 Bytes por frame):
+     - Para evitar que o Python perca o alinhamento caso algum byte se perca
+       na USB, o ESP32 envia cada pacote encapsulado no seguinte formato:
+       [ 0xAA ] [ 0x55 ] [ 55 bytes de Payload ] [ 1 byte Checksum XOR ]
+
+  3. Velocidades Seriais (Baud Rate):
+     - UART1 (ESP32 <-> LoRa E22) : 9600 bps (padrão de fábrica do E22).
+     - USB   (ESP32 <-> PC/Python): 115200 bps.
+
+---------------------------------------------------------------------------------
+  BIBLIOTECAS NECESSÁRIAS
+---------------------------------------------------------------------------------
+  - Arduino.h e HardwareSerial (Nativas):
+    Já vêm integradas ao pacote do ESP32 na Arduino IDE. Não precisa instalar
+    nada; gerenciam a porta serial física UART1 nos pinos 32 e 33.
+
+  - LoRa_E22.h (Instalar):
+    No Gerenciador de Bibliotecas da Arduino IDE (Ctrl + Shift + I), pesquise
+    por "EByte LoRa E22 library" (de Renzo Mischianti) e instale.
+
+---------------------------------------------------------------------------------
+  COMO VALIDAR E OPERAR A ESTAÇÃO DE SOLO
+---------------------------------------------------------------------------------
+  1. Teste Rápido no Monitor Serial:
+     Como este código envia dados BINÁRIOS brutos (Serial.write), ao abrir o
+     Monitor Serial da Arduino IDE em 115200 bps com o transmissor ligado, você
+     verá caracteres estranhos/símbolos aparecendo periodicamente — isso confirma
+     que os frames binários estão chegando corretamente.
+
+  2. Uso com o Dashboard Python (IMPORTANTE):
+     - FECHE o Monitor Serial da Arduino IDE antes de iniciar o Dashboard Python!
+       O Windows/Linux permite apenas um programa conectado à porta COM por vez.
+     - Mantenha M0 e M1 sempre aterrados no GND durante a operação.
 =================================================================================
 */
 
