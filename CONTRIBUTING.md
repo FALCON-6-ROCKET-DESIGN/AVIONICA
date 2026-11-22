@@ -12,15 +12,16 @@ Se você ainda não baixou o projeto ou nunca configurou o Git nesta máquina, a
 
 1. **Clonar o repositório:**
    ```bash
-   git clone https://github.com/FALCON-6-ROCKET-DESIGN/AVIONICA.git
+   git clone [https://github.com/FALCON-6-ROCKET-DESIGN/AVIONICA.git](https://github.com/FALCON-6-ROCKET-DESIGN/AVIONICA.git)
    cd AVIONICA
    ```
 
-2. **Configurar seu nome e e-mail apenas para esta pasta (`--local`):**
-   *(Usar `--local` garante que suas credenciais fiquem restritas a este repositório e não interfiram em outras contas).*
+2. **Configurar seu nome, e-mail e usuário GitHub apenas para esta pasta (`--local`):**
+   *(Usar `--local` e vincular seu usuário na URL evita conflitos em computadores compartilhados do laboratório).*
    ```bash
    git config --local user.name "Seu Nome Completo"
    git config --local user.email "seu.email@exemplo.com"
+   git remote set-url origin https://SEU-USUARIO-GITHUB@github.com/FALCON-6-ROCKET-DESIGN/AVIONICA.git
    ```
 
 3. **Conferir se a configuração foi aplicada:**
@@ -28,15 +29,32 @@ Se você ainda não baixou o projeto ou nunca configurou o Git nesta máquina, a
    git config --local --list
    ```
 
-4. **Criar e entrar na sua branch individual** (use o padrão `nome-sobrenome`):
+4. **Criar a sua branch individual** (apenas se você ainda **não** tiver uma branch no GitHub):
    ```bash
    git checkout -b seu-nome
    ```
-   *(Exemplo: `git checkout -b ricardo-rubio`)*
+   *(Exemplo: `git checkout -b ricardo-rubio` — se você já tem uma branch criada, pule para a Seção 2).*
 
 ---
 
-## 2. Salvando e Enviando Alterações para a Sua Branch
+## 2. Entrando em uma Nova Máquina (Puxando sua Branch já existente)
+
+Se você já criou sua branch anteriormente em outro PC e quer continuar de onde parou em um computador novo, **sem** sobrescrever seus arquivos com o que está na `main`:
+
+1. Após clonar e configurar seu usuário (passos 1 e 2 da Seção 1), baixe as informações das branches do GitHub:
+   ```bash
+   git fetch origin
+   ```
+
+2. Entre na sua branch existente puxando exatamente o conteúdo dela do GitHub:
+   ```bash
+   git checkout -b seu-nome origin/seu-nome
+   ```
+   *(Nota: Se a pasta já foi clonada antes nesse PC e você só quer entrar e atualizar sua branch sem tocar na `main`, use `git checkout seu-nome` seguido de `git pull origin seu-nome`).*
+
+---
+
+## 3. Salvando e Enviando Alterações para a Sua Branch
 
 Sempre que criar ou modificar códigos, esquemáticos ou modelos 3D:
 
@@ -60,7 +78,7 @@ Sempre que criar ou modificar códigos, esquemáticos ou modelos 3D:
 
 ---
 
-## 3. Enviando suas Atualizações para a `main` (Pull Request)
+## 4. Enviando suas Atualizações para a `main` (Pull Request)
 
 Quando o seu código ou arquivo estiver testado e pronto para entrar na versão oficial da equipe:
 
@@ -72,7 +90,7 @@ Quando o seu código ou arquivo estiver testado e pronto para entrar na versão 
 
 ---
 
-## 4. Puxando Atualizações da `main` (Sobrescrevendo arquivos antigos)
+## 5. Puxando Atualizações da `main` (Sobrescrevendo arquivos antigos)
 
 Se outros membros atualizaram a `main` depois de você (por exemplo: você criou a primeira versão do código do cartão SD, e dias depois outro colaborador atualizou esse mesmo arquivo na `main`), siga uma das opções abaixo para trazer a versão mais recente para a sua branch:
 
