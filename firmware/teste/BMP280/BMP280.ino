@@ -1,20 +1,69 @@
 /*
 =================================================================================
-  SISTEMA DE ACIONAMENTO DE APOGEU - ESP32 + BMP280
+  CÓDIGO DE TESTE DE BANCADA - SENSOR BAROMÉTRICO BMP280 (ESP32)
 =================================================================================
-  - Sensor: BMP280 (I2C 0x76)
-  - Pino de Acionamento do Squib (via MOSFET): GPIO 12
-  - Condição de Disparo: Altitude Relativa >= ALTITUDE_ALVO E detecção de queda
-=================================================================================
-             ESQUEMA DE LIGAÇÃO: BMP280 NO ESP32 (30 PINOS) - MODO I2C
-=================================================================================
-  BMP280  ->   ESP32 (30 Pinos)
+  Objetivo: Validar funcionamento, comunicação I2C e leituras de Temperatura,
+            Pressão e Altitude Relativa de novos módulos BMP280.
+
 ---------------------------------------------------------------------------------
-   VCC    ->   3V3 / 5V
-   GND    ->   GND
-   SCL    ->   GPIO D22
-   SDA    ->   GPIO D21
-   SKIB   ->   GPIO D13 (Conectado ao MOSFET do Squib)
+  ESQUEMA DE LIGAÇÃO: MÓDULO GY-BMP280 (6 PINOS) -> ESP32 (30 PINOS)
+---------------------------------------------------------------------------------
+  BMP280  ->   ESP32
+  VCC     ->   3V3   (ATENÇÃO: O módulo roxo GY-BMP280 não tem regulador; use 3.3V!)
+  GND     ->   GND
+  SCL     ->   GPIO 22 (D22)
+  SDA     ->   GPIO 21 (D21)
+  CSB     ->   Solto ou 3V3 (Mantém o sensor em modo I2C)
+  SDO     ->   GND, 3V3 ou Solto (Define o endereço I2C - veja tabela abaixo)
+
+---------------------------------------------------------------------------------
+  ENDEREÇOS I2C E CONFIGURAÇÃO DOS PINOS SDO E CSB
+---------------------------------------------------------------------------------
+  1. Pino SDO (Seleção de Endereço I2C):
+     - Ligado no GND (Nível Baixo)  -> Endereço 0x76
+     - Ligado no 3V3 (Nível Alto)   -> Endereço 0x77
+     - Solto (Desconectado)         -> Assume 0x76 na maioria das placas GY-BMP280
+                                       (pois possuem um resistor pull-down interno
+                                       de 10kΩ para o GND). Porém, em alguns lotes
+                                       sem esse resistor, o pino pode flutuar e
+                                       falhar. Para teste rápido pode deixar solto;
+                                       para projeto final, ligue no GND ou 3V3.
+
+  2. Pino CSB (Seleção de Protocolo):
+     - Solto ou ligado no 3V3       -> Ativa modo I2C (possui pull-up interno).
+     - Ligado no GND                -> Ativa modo SPI (desativa o I2C).
+
+---------------------------------------------------------------------------------
+  BIBLIOTECAS NECESSÁRIAS
+---------------------------------------------------------------------------------
+  - Wire.h (Nativa):
+    Já vem integrada ao pacote do ESP32 e à Arduino IDE. Não precisa instalar
+    nada; ela gerencia a comunicação I2C nos pinos SDA (21) e SCL (22).
+
+  - Adafruit_BMP280.h (Instalar):
+    No Gerenciador de Bibliotecas da Arduino IDE (Ctrl + Shift + I), pesquise
+    por "Adafruit BMP280 Library" (de Adafruit) e instale.
+
+  - Adafruit_Sensor.h (Instalar - Dependência):
+    Pesquise por "Adafruit Unified Sensor" (de Adafruit) e instale.
+    Dica: Ao clicar para instalar a biblioteca do BMP280 na Arduino IDE,
+    aparecerá um aviso perguntando se deseja instalar as dependências — basta
+    clicar em "Install All" que ambas serão instaladas juntas.
+
+---------------------------------------------------------------------------------
+  COMO VALIDAR RAPIDAMENTE O SENSOR NOVO NA BANCADA
+---------------------------------------------------------------------------------
+  1. Monitor Serial:
+     Ajuste a velocidade (baud rate) do Monitor Serial para 115200.
+
+  2. Teste de Altitude:
+     Após o código calibrar o ponto zero na mesa (~0.00 m), levante o sensor
+     cerca de 1 metro com a mão; o valor de Altitude Relativa deve subir
+     proporcionalmente (algo próximo de +0.80 m a +1.20 m).
+
+  3. Teste de Temperatura:
+     Encoste levemente o dedo sobre o pequeno encapsulamento metálico do chip;
+     a temperatura deve subir imediatamente.
 =================================================================================
 */
 
@@ -22,97 +71,58 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
 
-#define PINO_SQUIB 13            // Pino GPIO 12 (SKIB) conectado ao Gate do MOSFET
-#define ALTITUDE_ALVO 0.4        // Altitude mínima em metros para habilitar o disparo
-#define QUEDA_MARGEM 1.5         // Queda em metros a partir do pico para confirmar apogeu
-#define TEMPO_PULSO_SQUIB 2000   // Tempo de acionamento do Squib em ms (2 segundos)
-
-Adafruit_BMP280 altimetro;
+Adafruit_BMP280 bmp;
 float pressaoBase;
 
-float maxAltitudeAtingida = 0.0;
-bool acionado = false;
-bool squibAtivo = false;
-unsigned long tempoInicioAcionamento = 0;
-
 void setup() {
-  // Configura o pino do acionador imediatamente como SAÍDA em NÍVEL BAIXO (Segurança)
-  pinMode(PINO_SQUIB, OUTPUT);
-  digitalWrite(PINO_SQUIB, LOW);
-
   Serial.begin(115200);
-  delay(2000);
+  delay(1500);
 
-  if (!altimetro.begin(0x76)) {
-    Serial.println("BMP280 não encontrado! Verifique as conexões.");
-    while (1);
+  Serial.println("\n=== INICIANDO TESTE DO BMP280 ===");
+
+  // Tenta conectar primeiro no endereço padrão (0x76). Se falhar, tenta o 0x77.
+  if (bmp.begin(0x76)) {
+    Serial.println("Sensor BMP280 encontrado no endereco I2C: 0x76");
+  } else if (bmp.begin(0x77)) {
+    Serial.println("Sensor BMP280 encontrado no endereco I2C: 0x77");
+  } else {
+    Serial.println("ERRO: BMP280 nao encontrado em 0x76 nem em 0x77!");
+    Serial.println("Verifique: alimentacao 3V3, fios SDA/SCL e se CSB nao esta no GND.");
+    while (1) delay(100);
   }
 
-  // Configurações avançadas do BMP280 para maior precisão e resposta rápida
-  altimetro.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Modo de Operação */
-                        Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                        Adafruit_BMP280::SAMPLING_X16,    /* Pressão oversampling */
-                        Adafruit_BMP280::FILTER_X16,      /* Filtragem IIR */
-                        Adafruit_BMP280::STANDBY_MS_63);  /* Tempo de standby */
+  // Configuração de amostragem para leituras estáveis e responsivas
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     // Modo de operação contínuo
+                  Adafruit_BMP280::SAMPLING_X2,     // Oversampling de temperatura
+                  Adafruit_BMP280::SAMPLING_X16,    // Oversampling de pressão
+                  Adafruit_BMP280::FILTER_X16,      // Filtro IIR para reduzir ruído
+                  Adafruit_BMP280::STANDBY_MS_63);  // Intervalo entre medições
 
-  // Média inicial para calibrar a pressão no solo
+  // Calibra a pressão inicial da bancada (define o "zero" da altitude relativa)
   float somaPressao = 0;
   for (int i = 0; i < 10; i++) {
-    somaPressao += altimetro.readPressure();
+    somaPressao += bmp.readPressure();
     delay(50);
   }
   pressaoBase = (somaPressao / 10.0) / 100.0;
 
-  Serial.print("Pressão Base calibrada no solo: ");
-  Serial.print(pressaoBase);
-  Serial.println(" hPa");
+  Serial.print("Pressao de referencia (Zero): ");
+  Serial.print(pressaoBase, 2);
+  Serial.println(" hPa\n");
 }
 
 void loop() {
-  float pressao = altimetro.readPressure() / 100.0;
-  float altitudeAtual = altimetro.readAltitude(pressaoBase);
+  float temperatura = bmp.readTemperature();
+  float pressao = bmp.readPressure() / 100.0;
+  float altitudeRelativa = bmp.readAltitude(pressaoBase);
 
-  // Atualiza a altitude máxima atingida
-  if (altitudeAtual > maxAltitudeAtingida) {
-    maxAltitudeAtingida = altitudeAtual;
-  }
+  Serial.print("Temp: ");
+  Serial.print(temperatura, 2);
+  Serial.print(" °C  |  Pressao: ");
+  Serial.print(pressao, 2);
+  Serial.print(" hPa  |  Altitude Relativa: ");
+  Serial.print(altitudeRelativa, 2);
+  Serial.println(" m");
 
-  // Lógica de Detecção de Apogeu:
-  // 1. Atingiu a altitude mínima de segurança (ALTITUDE_ALVO)
-  // 2. A altitude atual caiu pelo menos "QUEDA_MARGEM" em relação ao pico máximo
-  bool apogeuDetectado = (maxAltitudeAtingida >= ALTITUDE_ALVO) && 
-                         (altitudeAtual <= (maxAltitudeAtingida - QUEDA_MARGEM));
-
-  // Disparo do Squib
-  if (apogeuDetectado && !acionado) {
-    acionado = true;
-    squibAtivo = true;
-    tempoInicioAcionamento = millis(); // Grava o tempo em que disparou
-    
-    digitalWrite(PINO_SQUIB, HIGH);   // Liga o MOSFET / Squib
-    Serial.println("!!! APOGEU DETECTADO - ACIONANDO SQUIB / SKIB !!!");
-  }
-
-  // Desliga o pino do Squib sem travar o ESP32 usando millis()
-  if (squibAtivo && (millis() - tempoInicioAcionamento >= TEMPO_PULSO_SQUIB)) {
-    digitalWrite(PINO_SQUIB, LOW);    // Desliga o acionador
-    squibAtivo = false;
-    Serial.println("Pulso do Squib finalizado por segurança.");
-  }
-
-  // Telemetria via Serial
-  Serial.print("Altitude Atual: ");
-  Serial.print(altitudeAtual);
-  Serial.print(" m | Max Altitude: ");
-  Serial.print(maxAltitudeAtingida);
-  Serial.print(" m | Status Squib: ");
-  if (squibAtivo) {
-    Serial.println("DISPARANDO!");
-  } else if (acionado) {
-    Serial.println("DISPARADO (DESLIGADO)");
-  } else {
-    Serial.println("AGUARDANDO APOGEU");
-  }
-
-  delay(50); // Leitura a cada 50ms
+  delay(500); // Atualiza a cada meio segundo para facilitar a leitura no Monitor Serial
 }

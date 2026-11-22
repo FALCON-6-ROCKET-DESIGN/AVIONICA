@@ -1,3 +1,69 @@
+"""
+=================================================================================
+  ESTAÇÃO DE SOLO (GROUND STATION) — DASHBOARD DE TELEMETRIA LORA (PYTHON)
+=================================================================================
+  Objetivo: Receber via USB Serial os quadros binários enviados pelo ESP32
+            Receptor (LoRa E22), validar integridade via Checksum XOR, salvar
+            histórico em CSV e exibir em tempo real:
+            - Métricas críticas de voo (Altitude, Velocidade, Satélites, Squib)
+            - Mapa 2D georreferenciado (centralizado via Falcon6_Mapa_UNIFEI.mbtiles)
+            - Trajetória 3D interativa
+            - Gráficos de Altitude, Velocidade, Orientação (Euler) e Aceleração
+            - Analisador Pós-Voo para o arquivo completo do Cartão SD (47 colunas)
+
+---------------------------------------------------------------------------------
+  ARQUITETURA E PROTOCOLO DE COMUNICAÇÃO (ESP32 RECEPTOR -> PC)
+---------------------------------------------------------------------------------
+  1. Enquadramento Binário USB (58 Bytes por quadro):
+     [ 0xAA ] [ 0x55 ] [ 55 bytes Payload (TelemetriaResumida) ] [ 1 byte XOR ]
+     - Sincronismo automático: se um byte falhar na USB, o parser descarta o
+       lixo e realinha no próximo cabeçalho 0xAA 0x55 válido.
+     - Little-Endian ("<"): compatível com a arquitetura Xtensa/RISC-V do ESP32.
+
+  2. Velocidade Serial (Baud Rate):
+     - Porta COM USB do ESP32 Receptor: 115200 bps.
+
+  3. Arquivos Locais na Mesma Pasta:
+     - Falcon6_Mapa_UNIFEI.mbtiles : Banco SQLite com os limites geográficos
+                                     (bounds) da área de lançamento.
+     - telemetria_guardada.csv     : Criado automaticamente para salvar todo o
+                                     histórico recebido ao vivo pelo rádio.
+
+---------------------------------------------------------------------------------
+  BIBLIOTECAS NECESSÁRIAS
+---------------------------------------------------------------------------------
+  1. Bibliotecas Nativas (Já vêm instaladas no Python — não precisa instalar):
+     - struct    : Desempacota os 55 bytes binários vindos do C/C++ (ESP32).
+     - sqlite3   : Lê os metadados (bounds) do arquivo .mbtiles do mapa.
+     - time      : Controle de taxa de atualização da interface.
+     - datetime  : Registro de carimbo de hora (timestamp) de cada pacote.
+     - os        : Verificação, criação e limpeza de arquivos CSV locais.
+
+  2. Bibliotecas Externas (Instalar via terminal com pip):
+     - streamlit        : Interface web interativa do dashboard.
+     - pyserial         : Comunicação com a porta COM/USB (importada como serial).
+     - pandas           : Manipulação de tabelas e leitura/escrita de CSV.
+     - numpy            : Suporte numérico para séries e gráficos.
+     - folium           : Renderização do mapa 2D de trajetória.
+     - streamlit-folium : Integração do mapa Folium dentro do Streamlit.
+     - plotly           : Gráficos 2D e Trajetória 3D interativos.
+
+---------------------------------------------------------------------------------
+  COMO EXECUTAR E VALIDAR NA BANCADA
+---------------------------------------------------------------------------------
+  1. Abra o terminal na pasta onde estão os arquivos e execute:
+       streamlit run Dashboard.py
+  2. Teste sem hardware (usando o Simulador):
+     - Deixe "Conectar ao ESP32" desmarcado, mantenha "Atualização em Tempo Real"
+       ligado e rode `python Simulador.py` em outro terminal.
+  3. Uso com o ESP32 Receptor (Hardware Real):
+     - FECHE o Monitor Serial da Arduino IDE (apenas um programa pode usar a
+       porta COM por vez).
+     - Na barra lateral do Dashboard, selecione a porta COM do ESP32, deixe
+       Baud Rate em 115200 e marque "Conectar ao ESP32".
+=================================================================================
+"""
+
 import streamlit as st
 import serial
 import serial.tools.list_ports
@@ -32,21 +98,21 @@ st.title("🚀 Estação de Solo - (Offline)")
 # =============================================================================
 FIELDS = [
     ("Pacote_ID",             "I"),  # uint32_t
-    ("Tempo_ms",               "I"),  # uint32_t
-    ("Latitude",               "f"),
-    ("Longitude",              "f"),
-    ("Alt_BMP",                "f"),
-    ("Alt_Max",                "f"),
-    ("Velocidade_GPS",         "f"),
-    ("Satélites",              "B"),  # uint8_t
-    ("Status_Squib",           "B"),  # uint8_t (0/1/2)
-    ("Validade_Localizacao",   "B"),  # uint8_t (0/1)
-    ("Roll",                   "f"),  # graus - orientação BNO055
-    ("Pitch",                  "f"),
-    ("Yaw",                    "f"),
-    ("Acc_Lin_X",              "f"),  # m/s² - aceleração linear BNO055
-    ("Acc_Lin_Y",              "f"),
-    ("Acc_Lin_Z",              "f"),
+    ("Tempo_ms",              "I"),  # uint32_t
+    ("Latitude",              "f"),
+    ("Longitude",             "f"),
+    ("Alt_BMP",               "f"),
+    ("Alt_Max",               "f"),
+    ("Velocidade_GPS",        "f"),
+    ("Satélites",             "B"),  # uint8_t
+    ("Status_Squib",          "B"),  # uint8_t (0/1/2)
+    ("Validade_Localizacao",  "B"),  # uint8_t (0/1)
+    ("Roll",                  "f"),  # graus - orientação BNO055
+    ("Pitch",                 "f"),
+    ("Yaw",                   "f"),
+    ("Acc_Lin_X",             "f"),  # m/s² - aceleração linear BNO055
+    ("Acc_Lin_Y",             "f"),
+    ("Acc_Lin_Z",             "f"),
 ]
 
 STRUCT_FORMAT = "<" + "".join(t for _, t in FIELDS)
@@ -158,8 +224,8 @@ conectar = st.sidebar.checkbox("Conectar ao ESP32")
 
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Pacote LoRa esperado: **{STRUCT_SIZE} bytes** de payload "
-                    f"({len(FIELDS)} campos), quadro USB de **{FRAME_SIZE} bytes** "
-                    f"com sync + checksum.")
+                   f"({len(FIELDS)} campos), quadro USB de **{FRAME_SIZE} bytes** "
+                   f"com sync + checksum.")
 
 # --- CONEXÃO E LEITURA DA SERIAL (com framing) ---
 ser = None
@@ -286,9 +352,9 @@ with col_g1:
     st.subheader("📈 Altitude vs Tempo")
     if not telemetria_df.empty:
         fig_alt = px.line(telemetria_df, x="Tempo_ms", y=["Alt_BMP", "Alt_Max"],
-                           labels={"value": "Altitude (m)", "Tempo_ms": "Tempo (ms)"})
+                          labels={"value": "Altitude (m)", "Tempo_ms": "Tempo (ms)"})
         fig_alt.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10),
-                               xaxis=dict(rangemode="tozero"), yaxis=dict(rangemode="tozero"))
+                              xaxis=dict(rangemode="tozero"), yaxis=dict(rangemode="tozero"))
         st.plotly_chart(fig_alt, use_container_width=True, key=f"fig_alt{key_suffix}")
     else:
         st.info("Aguardando dados...")
@@ -297,9 +363,9 @@ with col_g2:
     st.subheader("⚡ Velocidade (GPS) vs Tempo")
     if not telemetria_df.empty:
         fig_vel = px.line(telemetria_df, x="Tempo_ms", y="Velocidade_GPS",
-                           labels={"Velocidade_GPS": "Velocidade (m/s)", "Tempo_ms": "Tempo (ms)"})
+                          labels={"Velocidade_GPS": "Velocidade (m/s)", "Tempo_ms": "Tempo (ms)"})
         fig_vel.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10),
-                               xaxis=dict(rangemode="tozero"), yaxis=dict(rangemode="tozero"))
+                              xaxis=dict(rangemode="tozero"), yaxis=dict(rangemode="tozero"))
         st.plotly_chart(fig_vel, use_container_width=True, key=f"fig_vel{key_suffix}")
     else:
         st.info("Aguardando dados...")
@@ -310,7 +376,7 @@ with col_g3:
     st.subheader("🧭 Orientação (Roll / Pitch / Yaw) — BNO055")
     if not telemetria_df.empty:
         fig_ori = px.line(telemetria_df, x="Tempo_ms", y=["Roll", "Pitch", "Yaw"],
-                           labels={"value": "Graus (°)", "Tempo_ms": "Tempo (ms)"})
+                          labels={"value": "Graus (°)", "Tempo_ms": "Tempo (ms)"})
         fig_ori.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10))
         st.plotly_chart(fig_ori, use_container_width=True, key=f"fig_ori{key_suffix}")
     else:
@@ -320,7 +386,7 @@ with col_g4:
     st.subheader("📉 Aceleração Linear — BNO055")
     if not telemetria_df.empty:
         fig_acc = px.line(telemetria_df, x="Tempo_ms", y=["Acc_Lin_X", "Acc_Lin_Y", "Acc_Lin_Z"],
-                           labels={"value": "Aceleração (m/s²)", "Tempo_ms": "Tempo (ms)"})
+                          labels={"value": "Aceleração (m/s²)", "Tempo_ms": "Tempo (ms)"})
         fig_acc.update_layout(height=320, margin=dict(l=10, r=10, t=20, b=10), xaxis=dict(rangemode="tozero"))
         st.plotly_chart(fig_acc, use_container_width=True, key=f"fig_acc{key_suffix}")
     else:
